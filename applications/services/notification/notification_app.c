@@ -400,23 +400,12 @@ static void
                     app, notification_message->data.led.value));
             break;
         case NotificationMessageTypeLedRed:
-            app->led[0].value_last[LayerInternal] = notification_message->data.led.value;
-            notification_apply_internal_led_layer(
-                &app->led[0],
-                notification_settings_get_rgb_led_brightness(
-                    app, notification_message->data.led.value));
-            break;
         case NotificationMessageTypeLedGreen:
-            app->led[1].value_last[LayerInternal] = notification_message->data.led.value;
-            notification_apply_internal_led_layer(
-                &app->led[1],
-                notification_settings_get_rgb_led_brightness(
-                    app, notification_message->data.led.value));
-            break;
         case NotificationMessageTypeLedBlue:
-            app->led[2].value_last[LayerInternal] = notification_message->data.led.value;
+            uint8_t i = notification_message->type - NotificationMessageTypeLedRed;
+            app->led[i].value_last[LayerInternal] = notification_message->data.led.value;
             notification_apply_internal_led_layer(
-                &app->led[2],
+                &app->led[i],
                 notification_settings_get_rgb_led_brightness(
                     app, notification_message->data.led.value));
             break;
@@ -463,6 +452,14 @@ static void input_event_callback(const void* value, void* context) {
     }
 }
 
+static void ascii_event_callback(const void* value, void* context) {
+    furi_assert(value);
+    furi_assert(context);
+    UNUSED(value);
+    NotificationApp* app = context;
+    notification_message(app, &sequence_display_backlight_on);
+}
+
 // App alloc
 static NotificationApp* notification_app_alloc() {
     NotificationApp* app = malloc(sizeof(NotificationApp));
@@ -475,24 +472,26 @@ static NotificationApp* notification_app_alloc() {
     app->settings.display_off_delay_ms = 30000;
     app->settings.vibro_on = true;
 
-    app->display.value[LayerInternal] = 0x00;
-    app->display.value[LayerNotification] = 0x00;
-    app->display.index = LayerInternal;
+    // malloc() also does memset(0), no need to init 0 values
+    _Static_assert(LayerInternal == 0, "need to init layer values");
+    // app->display.value[LayerInternal] = 0x00;
+    // app->display.value[LayerNotification] = 0x00;
+    // app->display.index = LayerInternal;
     app->display.light = LightBacklight;
 
-    app->led[0].value[LayerInternal] = 0x00;
-    app->led[0].value[LayerNotification] = 0x00;
-    app->led[0].index = LayerInternal;
+    // app->led[0].value[LayerInternal] = 0x00;
+    // app->led[0].value[LayerNotification] = 0x00;
+    // app->led[0].index = LayerInternal;
     app->led[0].light = LightRed;
 
-    app->led[1].value[LayerInternal] = 0x00;
-    app->led[1].value[LayerNotification] = 0x00;
-    app->led[1].index = LayerInternal;
+    // app->led[1].value[LayerInternal] = 0x00;
+    // app->led[1].value[LayerNotification] = 0x00;
+    // app->led[1].index = LayerInternal;
     app->led[1].light = LightGreen;
 
-    app->led[2].value[LayerInternal] = 0x00;
-    app->led[2].value[LayerNotification] = 0x00;
-    app->led[2].index = LayerInternal;
+    // app->led[2].value[LayerInternal] = 0x00;
+    // app->led[2].value[LayerNotification] = 0x00;
+    // app->led[2].index = LayerInternal;
     app->led[2].light = LightBlue;
 
     app->settings.version = NOTIFICATION_SETTINGS_VERSION;
@@ -500,6 +499,8 @@ static NotificationApp* notification_app_alloc() {
     // display backlight control
     app->event_record = furi_record_open(RECORD_INPUT_EVENTS);
     furi_pubsub_subscribe(app->event_record, input_event_callback, app);
+    app->ascii_record = furi_record_open(RECORD_ASCII_EVENTS);
+    furi_pubsub_subscribe(app->ascii_record, ascii_event_callback, app);
     notification_message(app, &sequence_display_backlight_on);
 
     return app;

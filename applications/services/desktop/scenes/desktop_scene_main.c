@@ -112,11 +112,6 @@ bool desktop_scene_main_on_event(void* context, SceneManagerEvent event) {
             consumed = true;
             break;
 
-        case DesktopMainEventOpenDebug:
-            scene_manager_next_scene(desktop->scene_manager, DesktopSceneDebug);
-            consumed = true;
-            break;
-
         case DesktopMainEventOpenArchive:
 #ifdef APP_ARCHIVE
             desktop_switch_to_app(desktop, &FLIPPER_ARCHIVE);
@@ -125,7 +120,7 @@ bool desktop_scene_main_on_event(void* context, SceneManagerEvent event) {
             break;
 
         case DesktopMainEventOpenPowerOff: {
-            loader_start(desktop->loader, "Power", "off", NULL);
+            loader_start_detached_with_gui_error(desktop->loader, "Power", "off");
             consumed = true;
             break;
         }

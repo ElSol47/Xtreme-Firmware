@@ -270,21 +270,33 @@ SubGhzProtocolStatus ws_protocol_decoder_lacrosse_tx141thbv2_deserialize(
     FlipperFormat* flipper_format) {
     furi_assert(context);
     WSProtocolDecoderLaCrosse_TX141THBv2* instance = context;
-    return ws_block_generic_deserialize_check_count_bit(
-        &instance->generic,
-        flipper_format,
-        ws_protocol_lacrosse_tx141thbv2_const.min_count_bit_for_found);
+    SubGhzProtocolStatus ret = SubGhzProtocolStatusError;
+    do {
+        ret = ws_block_generic_deserialize(&instance->generic, flipper_format);
+        if(ret != SubGhzProtocolStatusOk) {
+            break;
+        }
+        if(instance->generic.data_count_bit !=
+               ws_protocol_lacrosse_tx141thbv2_const.min_count_bit_for_found &&
+           instance->generic.data_count_bit != LACROSSE_TX141TH_BV2_BIT_COUNT) {
+            FURI_LOG_E(TAG, "Wrong number of bits in key");
+            ret = SubGhzProtocolStatusErrorValueBitCount;
+            break;
+        }
+    } while(false);
+    return ret;
 }
 
 void ws_protocol_decoder_lacrosse_tx141thbv2_get_string(void* context, FuriString* output) {
     furi_assert(context);
     WSProtocolDecoderLaCrosse_TX141THBv2* instance = context;
+    bool locale_is_metric = furi_hal_rtc_get_locale_units() == FuriHalRtcLocaleUnitsMetric;
     furi_string_cat_printf(
         output,
         "%s\r\n%dbit\r\n"
         "Key:0x%lX%08lX\r\n"
         "Sn:0x%lX Ch:%d  Bat:%d\r\n"
-        "Temp:%3.1f C Hum:%d%%",
+        "Temp:%3.1f %c Hum:%d%%",
         instance->generic.protocol_name,
         instance->generic.data_count_bit,
         (uint32_t)(instance->generic.data >> 32),
@@ -292,6 +304,8 @@ void ws_protocol_decoder_lacrosse_tx141thbv2_get_string(void* context, FuriStrin
         instance->generic.id,
         instance->generic.channel,
         instance->generic.battery_low,
-        (double)instance->generic.temp,
+        (double)(locale_is_metric ? instance->generic.temp :
+                                    locale_celsius_to_fahrenheit(instance->generic.temp)),
+        locale_is_metric ? 'C' : 'F',
         instance->generic.humidity);
 }

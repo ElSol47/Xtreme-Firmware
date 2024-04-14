@@ -49,6 +49,7 @@ typedef struct {
 struct NotificationApp {
     FuriMessageQueue* queue;
     FuriPubSub* event_record;
+    FuriPubSub* ascii_record;
     FuriTimer* display_timer;
 
     NotificationLedLayer display;
@@ -58,4 +59,12 @@ struct NotificationApp {
     NotificationSettings settings;
 };
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void notification_message_save_settings(NotificationApp* app);
+
+#ifdef __cplusplus
+}
+#endif

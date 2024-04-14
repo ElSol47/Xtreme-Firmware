@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import pathlib
 
 from flipper.app import App
 from flipper.assets.icon import file2image
@@ -24,6 +25,9 @@ ICONS_TEMPLATE_C_HEADER = """#include "{assets_filename}.h"
 ICONS_TEMPLATE_C_FRAME = "const uint8_t {name}[] = {data};\n"
 ICONS_TEMPLATE_C_DATA = "const uint8_t* const {name}[] = {data};\n"
 ICONS_TEMPLATE_C_ICONS = "Icon {name} = {{.width={width},.height={height},.frame_count={frame_count},.frame_rate={frame_rate},.frames=_{name}}};\n"
+
+MAX_IMAGE_WIDTH = 128
+MAX_IMAGE_HEIGHT = 64
 
 
 class Main(App):
@@ -112,6 +116,10 @@ class Main(App):
 
     def _icon2header(self, file):
         image = file2image(file)
+        if image.width > MAX_IMAGE_WIDTH or image.height > MAX_IMAGE_HEIGHT:
+            raise Exception(
+                f"Image {file} is too big ({image.width}x{image.height} vs. {MAX_IMAGE_WIDTH}x{MAX_IMAGE_HEIGHT})"
+            )
         return image.width, image.height, image.data_as_carray()
 
     def _iconIsSupported(self, filename):
@@ -130,6 +138,12 @@ class Main(App):
         )
         icons = []
         paths = []
+        if self.args.filename == "assets_icons":
+            symbols = ""
+        else:
+            symbols = (
+                pathlib.Path(__file__).parent / "../targets/f7/api_symbols.csv"
+            ).read_text()
         # Traverse icons tree, append image data to source file
         for dirpath, dirnames, filenames in os.walk(self.args.input_directory):
             self.logger.debug(f"Processing directory {dirpath}")
@@ -140,6 +154,11 @@ class Main(App):
             if "frame_rate" in filenames:
                 self.logger.debug("Folder contains animation")
                 icon_name = "A_" + os.path.split(dirpath)[1].replace("-", "_")
+                if f"Variable,+,{icon_name},Icon," in symbols:
+                    self.logger.warning(
+                        f"{self.args.filename}: ignoring duplicate icon {icon_name}"
+                    )
+                    continue
                 width = height = None
                 frame_count = 0
                 frame_rate = 0
@@ -175,7 +194,7 @@ class Main(App):
                 icons_c.write("\n")
                 icons.append((icon_name, width, height, frame_rate, frame_count))
                 p = dirpath.removeprefix(self.args.input_directory)[1:]
-                paths.append((1, icon_name, p.replace("\\", "/")))
+                paths.append((icon_name, p.replace("\\", "/")))
             else:
                 # process icons
                 for filename in filenames:
@@ -185,6 +204,11 @@ class Main(App):
                     icon_name = "I_" + "_".join(filename.split(".")[:-1]).replace(
                         "-", "_"
                     )
+                    if f"Variable,+,{icon_name},Icon," in symbols:
+                        self.logger.warning(
+                            f"{self.args.filename}: ignoring duplicate icon {icon_name}"
+                        )
+                        continue
                     fullfilename = os.path.join(dirpath, filename)
                     width, height, data = self._icon2header(fullfilename)
                     frame_name = f"_{icon_name}_0"
@@ -199,7 +223,7 @@ class Main(App):
                     icons_c.write("\n")
                     icons.append((icon_name, width, height, 0, 1))
                     p = fullfilename.removeprefix(self.args.input_directory)[1:]
-                    paths.append((0, icon_name, p.replace("\\", "/").rsplit(".", 1)[0]))
+                    paths.append((icon_name, p.replace("\\", "/").rsplit(".", 1)[0]))
         # Create array of images:
         self.logger.debug("Finalizing source file")
         for name, width, height, frame_rate, frame_count in icons:
@@ -219,8 +243,8 @@ const IconPath ICON_PATHS[] = {
 #ifndef FURI_RAM_EXEC
 """
             )
-            for animated, name, path in paths:
-                icons_c.write(f'    {{{animated}, &{name}, "{path}"}},\n')
+            for name, path in paths:
+                icons_c.write(f'    {{&{name}, "{path}"}},\n')
             icons_c.write(
                 """#endif
 };
@@ -243,7 +267,6 @@ const size_t ICON_PATHS_COUNT = COUNT_OF(ICON_PATHS);
             icons_h.write(
                 """
 typedef struct {
-    bool animated;
     const Icon* icon;
     const char* path;
 } IconPath;
@@ -252,6 +275,8 @@ extern const IconPath ICON_PATHS[];
 extern const size_t ICON_PATHS_COUNT;
 """
             )
+        else:
+            icons_h.write("#include <assets_icons.h>\n")
         icons_h.close()
         self.logger.debug("Done")
         return 0

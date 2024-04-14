@@ -14,6 +14,7 @@ extern "C" {
 
 #define STORAGE_INT_PATH_PREFIX "/int"
 #define STORAGE_EXT_PATH_PREFIX "/ext"
+#define STORAGE_MNT_PATH_PREFIX "/mnt"
 #define STORAGE_ANY_PATH_PREFIX "/any"
 #define STORAGE_APP_DATA_PATH_PREFIX "/data"
 #define STORAGE_APP_ASSETS_PATH_PREFIX "/assets"
@@ -21,6 +22,7 @@ extern "C" {
 
 #define INT_PATH(path) STORAGE_INT_PATH_PREFIX "/" path
 #define EXT_PATH(path) STORAGE_EXT_PATH_PREFIX "/" path
+#define MNT_PATH(path) STORAGE_MNT_PATH_PREFIX "/" path
 #define ANY_PATH(path) STORAGE_ANY_PATH_PREFIX "/" path
 #define APP_DATA_PATH(path) STORAGE_APP_DATA_PATH_PREFIX "/" path
 #define APP_ASSETS_PATH(path) STORAGE_APP_ASSETS_PATH_PREFIX "/" path
@@ -366,7 +368,7 @@ FS_Error storage_common_merge(Storage* storage, const char* old_path, const char
  * @brief Create a directory.
  *
  * @param storage pointer to a storage API instance.
- * @param fs_path pointer to a zero-terminated string containing the directory path.
+ * @param path pointer to a zero-terminated string containing the directory path.
  * @return FSE_OK if the directory has been successfully created, any other error code on failure.
  */
 FS_Error storage_common_mkdir(Storage* storage, const char* path);
@@ -393,7 +395,6 @@ FS_Error storage_common_fs_info(
  * 
  * @param storage pointer to a storage API instance.
  * @param path pointer to a zero-terminated string containing the path in question.
- * @return true if the path was successfully resolved, false otherwise.
  */
 void storage_common_resolve_path_and_ensure_app_directory(Storage* storage, FuriString* path);
 
@@ -553,7 +554,60 @@ FS_Error storage_int_backup(Storage* storage, const char* dstname);
  * @param converter pointer to a filename conversion function (may be NULL).
  * @return FSE_OK if the storage was successfully restored, any other error code on failure.
  */
-FS_Error storage_int_restore(Storage* api, const char* dstname, Storage_name_converter converter);
+FS_Error
+    storage_int_restore(Storage* storage, const char* dstname, Storage_name_converter converter);
+
+/******************* FatFs Virtual Mount Functions *******************/
+
+/**
+ * @brief Initialize virual API with given disk image.
+ *
+ * @param storage pointer to a storage API instance.
+ * @param image pointer to a File instance to base virtual mount on.
+ * @return FSE_OK if the image was setup successfully.
+ * @return FSE_ALREADY_OPEN if virtual API is already initialized.
+ */
+FS_Error storage_virtual_init(Storage* storage, File* image);
+
+/**
+ * @brief Format the virtual image.
+ *
+ * @param storage pointer to a storage API instance.
+ * @return FSE_OK if the image was formatted successfully.
+ * @return FSE_NOT_READY if virtual API is not initialized.
+ * @return FSE_INTERNAL if an unknown error occurred.
+ */
+FS_Error storage_virtual_format(Storage* storage);
+
+/**
+ * @brief Mount the virtual image to /mnt.
+ *
+ * @param storage pointer to a storage API instance.
+ * @return FSE_OK if the image was mounted successfully.
+ * @return FSE_NOT_READY if virtual API is not initialized.
+ * @return FSE_INVALID_PARAMETER if image has no supported filesystem.
+ * @return FSE_INTERNAL if an unknown error occurred.
+ */
+FS_Error storage_virtual_mount(Storage* storage);
+
+/**
+ * @brief Unmount the virtual image from /mnt.
+ *
+ * @param storage pointer to a storage API instance.
+ * @return FSE_OK if the image was unmounted successfully.
+ * @return FSE_NOT_READY if virtual API is not initialized.
+ * @return FSE_INTERNAL if an unknown error occurred.
+ */
+FS_Error storage_virtual_unmount(Storage* storage);
+
+/**
+ * @brief Quit virtual mount API, reset to allow new init.
+ *
+ * @param storage pointer to a storage API instance.
+ * @return FSE_OK if the image was unloaded successfully.
+ * @return FSE_NOT_READY if virtual API is not initialized.
+ */
+FS_Error storage_virtual_quit(Storage* storage);
 
 /***************** Simplified Functions ******************/
 

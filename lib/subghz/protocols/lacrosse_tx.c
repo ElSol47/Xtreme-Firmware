@@ -98,7 +98,8 @@ const SubGhzProtocol ws_protocol_lacrosse_tx = {
     .name = WS_PROTOCOL_LACROSSE_TX_NAME,
     .type = SubGhzProtocolTypeStatic,
     .flag = SubGhzProtocolFlag_433 | SubGhzProtocolFlag_315 | SubGhzProtocolFlag_868 |
-            SubGhzProtocolFlag_AM | SubGhzProtocolFlag_Decodable,
+            SubGhzProtocolFlag_AM | SubGhzProtocolFlag_Decodable | SubGhzProtocolFlag_Load |
+            SubGhzProtocolFlag_Save,
 
     .decoder = &ws_protocol_lacrosse_tx_decoder,
     .encoder = &ws_protocol_lacrosse_tx_encoder,
@@ -303,12 +304,13 @@ SubGhzProtocolStatus
 void ws_protocol_decoder_lacrosse_tx_get_string(void* context, FuriString* output) {
     furi_assert(context);
     WSProtocolDecoderLaCrosse_TX* instance = context;
+    bool locale_is_metric = furi_hal_rtc_get_locale_units() == FuriHalRtcLocaleUnitsMetric;
     furi_string_cat_printf(
         output,
         "%s\r\n%dbit\r\n"
         "Key:0x%lX%08lX\r\n"
         "Sn:0x%lX Ch:%d  Bat:%d\r\n"
-        "Temp:%3.1f C Hum:%d%%",
+        "Temp:%3.1f %c Hum:%d%%",
         instance->generic.protocol_name,
         instance->generic.data_count_bit,
         (uint32_t)(instance->generic.data >> 32),
@@ -316,6 +318,8 @@ void ws_protocol_decoder_lacrosse_tx_get_string(void* context, FuriString* outpu
         instance->generic.id,
         instance->generic.channel,
         instance->generic.battery_low,
-        (double)instance->generic.temp,
+        (double)(locale_is_metric ? instance->generic.temp :
+                                    locale_celsius_to_fahrenheit(instance->generic.temp)),
+        locale_is_metric ? 'C' : 'F',
         instance->generic.humidity);
 }

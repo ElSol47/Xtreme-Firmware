@@ -1,12 +1,19 @@
+#include "../bad_kb_app_i.h"
 #include "bad_kb_view.h"
 #include "../helpers/ducky_script.h"
-#include "../bad_kb_app.h"
 #include <toolbox/path.h>
 #include <gui/elements.h>
 #include <assets_icons.h>
 #include <xtreme/xtreme.h>
+#include <bt/bt_service/bt_i.h>
 
 #define MAX_NAME_LEN 64
+
+struct BadKb {
+    View* view;
+    BadKbButtonCallback callback;
+    void* context;
+};
 
 typedef struct {
     char file_name[MAX_NAME_LEN];
@@ -44,11 +51,13 @@ static void bad_kb_draw_callback(Canvas* canvas, void* _model) {
     canvas_draw_str(
         canvas, 2, 8 + canvas_current_font_height(canvas), furi_string_get_cstr(disp_str));
 
+    furi_string_reset(disp_str);
+
     canvas_draw_icon(canvas, 22, 24, &I_UsbTree_48x22);
 
     if((state == BadKbStateIdle) || (state == BadKbStateDone) ||
        (state == BadKbStateNotConnected)) {
-        if(xtreme_settings.is_nsfw) {
+        if(xtreme_assets.is_nsfw) {
             elements_button_center(canvas, "Cum");
         } else {
             elements_button_center(canvas, "Run");
@@ -71,7 +80,7 @@ static void bad_kb_draw_callback(Canvas* canvas, void* _model) {
     if(state == BadKbStateNotConnected) {
         canvas_draw_icon(canvas, 4, 26, &I_Clock_18x18);
         canvas_set_font(canvas, FontPrimary);
-        if(xtreme_settings.is_nsfw) {
+        if(xtreme_assets.is_nsfw) {
             canvas_draw_str_aligned(canvas, 127, 31, AlignRight, AlignBottom, "Plug me");
             canvas_draw_str_aligned(canvas, 127, 43, AlignRight, AlignBottom, "in, Daddy");
         } else {
@@ -81,7 +90,7 @@ static void bad_kb_draw_callback(Canvas* canvas, void* _model) {
     } else if(state == BadKbStateWillRun) {
         canvas_draw_icon(canvas, 4, 26, &I_Clock_18x18);
         canvas_set_font(canvas, FontPrimary);
-        if(xtreme_settings.is_nsfw) {
+        if(xtreme_assets.is_nsfw) {
             canvas_draw_str_aligned(canvas, 127, 31, AlignRight, AlignBottom, "Will cum");
         } else {
             canvas_draw_str_aligned(canvas, 127, 31, AlignRight, AlignBottom, "Will run");

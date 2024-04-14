@@ -10,7 +10,6 @@
 #include <furi.h>
 #include <furi_hal_rtc.h>
 #include <m-array.h>
-#include <m-algo.h>
 #include <stdio.h>
 
 #include "canvas.h"
@@ -40,20 +39,10 @@
 
 #define GUI_THREAD_FLAG_DRAW (1 << 0)
 #define GUI_THREAD_FLAG_INPUT (1 << 1)
-#define GUI_THREAD_FLAG_ALL (GUI_THREAD_FLAG_DRAW | GUI_THREAD_FLAG_INPUT)
+#define GUI_THREAD_FLAG_ASCII (1 << 2)
+#define GUI_THREAD_FLAG_ALL (GUI_THREAD_FLAG_DRAW | GUI_THREAD_FLAG_INPUT | GUI_THREAD_FLAG_ASCII)
 
 ARRAY_DEF(ViewPortArray, ViewPort*, M_PTR_OPLIST);
-
-typedef struct {
-    GuiCanvasCommitCallback callback;
-    void* context;
-} CanvasCallbackPair;
-
-ARRAY_DEF(CanvasCallbackPairArray, CanvasCallbackPair, M_POD_OPLIST);
-
-#define M_OPL_CanvasCallbackPairArray_t() ARRAY_OPLIST(CanvasCallbackPairArray, M_POD_OPLIST)
-
-ALGO_DEF(CanvasCallbackPairArray, CanvasCallbackPairArray_t);
 
 /** Gui structure */
 struct Gui {
@@ -66,7 +55,6 @@ struct Gui {
     bool direct_draw;
     ViewPortArray_t layers[GuiLayerMAX];
     Canvas* canvas;
-    CanvasCallbackPairArray_t canvas_callback_pair;
 
     // Input
     FuriMessageQueue* input_queue;
@@ -75,6 +63,9 @@ struct Gui {
     ViewPort* ongoing_input_view_port;
 
     uint16_t hide_statusbar_count;
+
+    FuriMessageQueue* ascii_queue;
+    FuriPubSub* ascii_events;
 };
 
 /** Find enabled ViewPort in ViewPortArray

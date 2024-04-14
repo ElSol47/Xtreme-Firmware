@@ -56,7 +56,10 @@ def pack_anim(src: pathlib.Path, dst: pathlib.Path):
             shutil.copyfile(src / "meta.txt", dst / "meta.txt")
             continue
         elif frame.name.startswith("frame_"):
-            (dst / frame.with_suffix(".bm").name).write_bytes(convert_bm(frame))
+            if frame.name.endswith(".bm"):
+                shutil.copyfile(src / frame.name, dst / frame.name)
+            else:
+                (dst / frame.with_suffix(".bm").name).write_bytes(convert_bm(frame))
 
 
 def pack_icon_animated(src: pathlib.Path, dst: pathlib.Path):
@@ -83,6 +86,20 @@ def pack_icon_animated(src: pathlib.Path, dst: pathlib.Path):
 def pack_icon_static(src: pathlib.Path, dst: pathlib.Path):
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.with_suffix(".bmx").write_bytes(convert_bmx(src))
+
+
+def pack_font(src: pathlib.Path, dst: pathlib.Path):
+    code = src.read_bytes().split(b' U8G2_FONT_SECTION("')[1].split(b'") =')[1].strip()
+    font = b""
+    for line in code.splitlines():
+        if line.count(b'"') == 2:
+            font += (
+                line[line.find(b'"') + 1 : line.rfind(b'"')]
+                .decode("unicode_escape")
+                .encode("latin_1")
+            )
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.with_suffix(".u8f").write_bytes(font)
 
 
 def pack(
@@ -144,6 +161,13 @@ def pack(
                         pack_icon_static(
                             icon, packed / "Icons" / icons.name / icon.name
                         )
+
+        if (source / "Fonts").is_dir():
+            for font in (source / "Fonts").iterdir():
+                if not font.is_file():
+                    continue
+                logger(f"Compile: font for pack '{source.name}': {font.name}")
+                pack_font(font, packed / "Fonts" / font.name)
 
 
 if __name__ == "__main__":

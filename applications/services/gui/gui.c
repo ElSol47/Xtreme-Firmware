@@ -55,6 +55,16 @@ void gui_input_events_callback(const void* value, void* ctx) {
     furi_thread_flags_set(gui->thread_id, GUI_THREAD_FLAG_INPUT);
 }
 
+void gui_ascii_events_callback(const void* value, void* ctx) {
+    furi_assert(value);
+    furi_assert(ctx);
+
+    Gui* gui = ctx;
+
+    furi_message_queue_put(gui->ascii_queue, value, FuriWaitForever);
+    furi_thread_flags_set(gui->thread_id, GUI_THREAD_FLAG_ASCII);
+}
+
 // Only Fullscreen supports vertical display for now
 static bool gui_redraw_fs(Gui* gui) {
     canvas_set_orientation(gui->canvas, CanvasOrientationHorizontal);
@@ -294,14 +304,6 @@ static void gui_redraw(Gui* gui) {
         }
 
         canvas_commit(gui->canvas);
-        for
-            M_EACH(p, gui->canvas_callback_pair, CanvasCallbackPairArray_t) {
-                p->callback(
-                    canvas_get_buffer(gui->canvas),
-                    canvas_get_buffer_size(gui->canvas),
-                    canvas_get_orientation(gui->canvas),
-                    p->context);
-            }
     } while(false);
 
     gui_unlock(gui);
@@ -369,6 +371,35 @@ static void gui_input(Gui* gui, InputEvent* input_event) {
                 input_get_key_name(input_event->key),
                 input_get_type_name(input_event->type),
                 (void*)input_event->sequence);
+        }
+    } while(false);
+
+    gui_unlock(gui);
+}
+
+static void gui_ascii(Gui* gui, AsciiEvent* ascii_event) {
+    furi_assert(gui);
+    furi_assert(ascii_event);
+
+    gui_lock(gui);
+
+    do {
+        if(gui->direct_draw) {
+            break;
+        }
+
+        ViewPort* view_port = NULL;
+
+        if(gui->lockdown) {
+            view_port = gui_view_port_find_enabled(gui->layers[GuiLayerDesktop]);
+        } else {
+            view_port = gui_view_port_find_enabled(gui->layers[GuiLayerFullscreen]);
+            if(!view_port) view_port = gui_view_port_find_enabled(gui->layers[GuiLayerWindow]);
+            if(!view_port) view_port = gui_view_port_find_enabled(gui->layers[GuiLayerDesktop]);
+        }
+
+        if(view_port) {
+            view_port_ascii(view_port, ascii_event);
         }
     } while(false);
 
@@ -502,12 +533,7 @@ void gui_view_port_send_to_back(Gui* gui, ViewPort* view_port) {
 void gui_add_framebuffer_callback(Gui* gui, GuiCanvasCommitCallback callback, void* context) {
     furi_assert(gui);
 
-    const CanvasCallbackPair p = {callback, context};
-
-    gui_lock(gui);
-    furi_assert(!CanvasCallbackPairArray_count(gui->canvas_callback_pair, p));
-    CanvasCallbackPairArray_push_back(gui->canvas_callback_pair, p);
-    gui_unlock(gui);
+    canvas_add_framebuffer_callback(gui->canvas, callback, context);
 
     // Request redraw
     gui_update(gui);
@@ -516,12 +542,7 @@ void gui_add_framebuffer_callback(Gui* gui, GuiCanvasCommitCallback callback, vo
 void gui_remove_framebuffer_callback(Gui* gui, GuiCanvasCommitCallback callback, void* context) {
     furi_assert(gui);
 
-    const CanvasCallbackPair p = {callback, context};
-
-    gui_lock(gui);
-    furi_assert(CanvasCallbackPairArray_count(gui->canvas_callback_pair, p) == 1);
-    CanvasCallbackPairArray_remove_val(gui->canvas_callback_pair, p);
-    gui_unlock(gui);
+    canvas_remove_framebuffer_callback(gui->canvas, callback, context);
 }
 
 size_t gui_get_framebuffer_size(const Gui* gui) {
@@ -561,6 +582,8 @@ Canvas* gui_direct_draw_acquire(Gui* gui) {
     gui->direct_draw = true;
     gui_unlock(gui);
 
+    canvas_set_orientation(gui->canvas, CanvasOrientationHorizontal);
+    canvas_frame_set(gui->canvas, 0, 0, GUI_DISPLAY_WIDTH, GUI_DISPLAY_HEIGHT);
     canvas_reset(gui->canvas);
     canvas_commit(gui->canvas);
 
@@ -586,21 +609,24 @@ Gui* gui_alloc() {
     gui->thread_id = furi_thread_get_current_id();
     // Allocate mutex
     gui->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
-    furi_check(gui->mutex);
+
     // Layers
     for(size_t i = 0; i < GuiLayerMAX; i++) {
         ViewPortArray_init(gui->layers[i]);
     }
+
     // Drawing canvas
     gui->canvas = canvas_init();
-    CanvasCallbackPairArray_init(gui->canvas_callback_pair);
 
     // Input
     gui->input_queue = furi_message_queue_alloc(8, sizeof(InputEvent));
     gui->input_events = furi_record_open(RECORD_INPUT_EVENTS);
+    gui->ascii_queue = furi_message_queue_alloc(8, sizeof(AsciiEvent));
+    gui->ascii_events = furi_record_open(RECORD_ASCII_EVENTS);
 
-    furi_check(gui->input_events);
     furi_pubsub_subscribe(gui->input_events, gui_input_events_callback, gui);
+    furi_check(gui->ascii_events);
+    furi_pubsub_subscribe(gui->ascii_events, gui_ascii_events_callback, gui);
 
     Storage* storage = furi_record_open(RECORD_STORAGE);
     gui_add_view_port(gui, storage->sd_gui.view_port, GuiLayerStatusBarLeft);
@@ -624,6 +650,14 @@ int32_t gui_srv(void* p) {
             InputEvent input_event;
             while(furi_message_queue_get(gui->input_queue, &input_event, 0) == FuriStatusOk) {
                 gui_input(gui, &input_event);
+            }
+        }
+        // Process and dispatch ascii
+        if(flags & GUI_THREAD_FLAG_ASCII) {
+            // Process till queue become empty
+            AsciiEvent ascii_event;
+            while(furi_message_queue_get(gui->ascii_queue, &ascii_event, 0) == FuriStatusOk) {
+                gui_ascii(gui, &ascii_event);
             }
         }
         // Process and dispatch draw call

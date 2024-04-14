@@ -33,12 +33,18 @@ static void desktop_loader_callback(const void* message, void* context) {
     Desktop* desktop = context;
     const LoaderEvent* event = message;
 
-    if(event->type == LoaderEventTypeApplicationStarted) {
+    if(event->type == LoaderEventTypeApplicationBeforeLoad) {
+        desktop->animation_lock = api_lock_alloc_locked();
         view_dispatcher_send_custom_event(desktop->view_dispatcher, DesktopGlobalBeforeAppStarted);
-    } else if(event->type == LoaderEventTypeApplicationStopped) {
+        api_lock_wait_unlock_and_free(desktop->animation_lock);
+        desktop->animation_lock = NULL;
+    } else if(
+        event->type == LoaderEventTypeApplicationLoadFailed ||
+        event->type == LoaderEventTypeApplicationStopped) {
         view_dispatcher_send_custom_event(desktop->view_dispatcher, DesktopGlobalAfterAppFinished);
     }
 }
+
 static void desktop_lock_icon_draw_callback(Canvas* canvas, void* context) {
     UNUSED(context);
     furi_assert(canvas);
@@ -48,7 +54,7 @@ static void desktop_lock_icon_draw_callback(Canvas* canvas, void* context) {
 static void desktop_clock_update(Desktop* desktop) {
     furi_assert(desktop);
 
-    FuriHalRtcDateTime curr_dt;
+    DateTime curr_dt;
     furi_hal_rtc_get_datetime(&curr_dt);
     bool time_format_12 = locale_get_time_format() == LocaleTimeFormat12h;
 
@@ -115,8 +121,11 @@ static bool desktop_custom_event_callback(void* context, uint32_t event) {
 
     switch(event) {
     case DesktopGlobalBeforeAppStarted:
-        animation_manager_unload_and_stall_animation(desktop->animation_manager);
+        if(animation_manager_is_animation_loaded(desktop->animation_manager)) {
+            animation_manager_unload_and_stall_animation(desktop->animation_manager);
+        }
         desktop_auto_lock_inhibit(desktop);
+        api_lock_unlock(desktop->animation_lock);
         return true;
     case DesktopGlobalAfterAppFinished:
         animation_manager_load_and_continue_animation(desktop->animation_manager);
@@ -145,14 +154,12 @@ static void desktop_tick_event_callback(void* context) {
     scene_manager_handle_tick_event(app->scene_manager);
 }
 
-static void desktop_input_event_callback(const void* value, void* context) {
+static void desktop_auto_lock_callback(const void* value, void* context) {
     furi_assert(value);
     furi_assert(context);
-    const InputEvent* event = value;
+    UNUSED(value);
     Desktop* desktop = context;
-    if(event->type == InputTypePress) {
-        desktop_start_auto_lock_timer(desktop);
-    }
+    desktop_start_auto_lock_timer(desktop);
 }
 
 static void desktop_auto_lock_timer_callback(void* context) {
@@ -172,8 +179,14 @@ static void desktop_stop_auto_lock_timer(Desktop* desktop) {
 
 static void desktop_auto_lock_arm(Desktop* desktop) {
     if(desktop->settings.auto_lock_delay_ms) {
-        desktop->input_events_subscription = furi_pubsub_subscribe(
-            desktop->input_events_pubsub, desktop_input_event_callback, desktop);
+        if(desktop->input_events_subscription == NULL) {
+            desktop->input_events_subscription = furi_pubsub_subscribe(
+                desktop->input_events_pubsub, desktop_auto_lock_callback, desktop);
+        }
+        if(desktop->ascii_events_subscription == NULL) {
+            desktop->ascii_events_subscription = furi_pubsub_subscribe(
+                desktop->ascii_events_pubsub, desktop_auto_lock_callback, desktop);
+        }
         desktop_start_auto_lock_timer(desktop);
     }
 }
@@ -183,6 +196,10 @@ static void desktop_auto_lock_inhibit(Desktop* desktop) {
     if(desktop->input_events_subscription) {
         furi_pubsub_unsubscribe(desktop->input_events_pubsub, desktop->input_events_subscription);
         desktop->input_events_subscription = NULL;
+    }
+    if(desktop->ascii_events_subscription) {
+        furi_pubsub_unsubscribe(desktop->ascii_events_pubsub, desktop->ascii_events_subscription);
+        desktop->ascii_events_subscription = NULL;
     }
 }
 
@@ -284,7 +301,6 @@ Desktop* desktop_alloc() {
         desktop->view_dispatcher, desktop_back_event_callback);
 
     desktop->lock_menu = desktop_lock_menu_alloc();
-    desktop->debug_view = desktop_debug_alloc();
     desktop->hw_mismatch_popup = popup_alloc();
     desktop->locked_view = desktop_view_locked_alloc();
     desktop->pin_input_view = desktop_view_pin_input_alloc();
@@ -318,8 +334,6 @@ Desktop* desktop_alloc() {
         desktop->view_dispatcher,
         DesktopViewIdLockMenu,
         desktop_lock_menu_get_view(desktop->lock_menu));
-    view_dispatcher_add_view(
-        desktop->view_dispatcher, DesktopViewIdDebug, desktop_debug_get_view(desktop->debug_view));
     view_dispatcher_add_view(
         desktop->view_dispatcher,
         DesktopViewIdHwMismatch,
@@ -372,6 +386,8 @@ Desktop* desktop_alloc() {
 
     desktop->input_events_pubsub = furi_record_open(RECORD_INPUT_EVENTS);
     desktop->input_events_subscription = NULL;
+    desktop->ascii_events_pubsub = furi_record_open(RECORD_ASCII_EVENTS);
+    desktop->ascii_events_subscription = NULL;
 
     desktop->auto_lock_timer =
         furi_timer_alloc(desktop_auto_lock_timer_callback, FuriTimerTypeOnce, desktop);
@@ -401,7 +417,7 @@ bool desktop_api_is_locked(Desktop* instance) {
 
 void desktop_api_unlock(Desktop* instance) {
     furi_assert(instance);
-    view_dispatcher_send_custom_event(instance->view_dispatcher, DesktopLockedEventUnlocked);
+    view_dispatcher_send_custom_event(instance->view_dispatcher, DesktopGlobalApiUnlock);
 }
 
 FuriPubSub* desktop_api_get_status_pubsub(Desktop* instance) {
